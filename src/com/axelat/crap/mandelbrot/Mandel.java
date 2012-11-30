@@ -1,12 +1,13 @@
 package com.axelat.crap.mandelbrot;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.*;
 
 public class Mandel {
-    public static void main(String[] args) throws InterruptedException {
-        for (String arg : args) System.out.println(arg);
+
+    private final PrintStream out;
+    private final InputStream in;
+
+    public static void main(String[] args) throws InterruptedException, IOException {
         final int rows = args.length > 0 ? Integer.parseInt(args[0]) : 16;
         new Mandel(new View(rows), new Drawer(Drawer.Scheme.DEFAULT)).run();
         System.out.println("Bye");
@@ -27,33 +28,30 @@ public class Mandel {
     private Mandel(View view, Drawer drawer) {
         this.view = view;
         this.drawer = drawer;
+        out = System.out;
+        in = System.in;
     }
 
-    void run() {
-        final BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+    void run() throws IOException {
+        final BufferedReader reader = new BufferedReader(new InputStreamReader(in));
 
         boolean redraw = true;
         while (true) {
             if (redraw) {
-                output(view, drawer);
-            }
-
-            final String input;
-            try {
-                input = reader.readLine();
-            } catch (IOException e) {
-                break;
+                out.print(drawer.draw(view.getSnapshot()));
+                out.printf("X: %.14f  Y: %.14f  Zoom: %.1f  > ", view.x, view.y, view.getZoomLevel());
             }
 
             redraw = true;
 
+            final String input = reader.readLine();
             if (input.equals("quit")) break;
                 // Zooming
             else if (input.equals("+") || input.equals("e")) view.zoomIn(1);
             else if (input.equals("-") || input.equals("q")) view.zoomOut(1);
             else if (input.equals("E")) view.zoomIn(2);
             else if (input.equals("Q")) view.zoomOut(2);
-            else if (input.startsWith("zoom")) redraw = zoomCommand(view, input);
+            else if (input.startsWith("zoom")) redraw = zoomCommand(input);
                 // Movement
             else if (input.equals("w")) view.up(0.25);
             else if (input.equals("W")) view.up(0.5);
@@ -63,7 +61,7 @@ public class Mandel {
             else if (input.equals("S")) view.down(0.5);
             else if (input.equals("d")) view.right(0.25);
             else if (input.equals("D")) view.right(0.5);
-            else if (input.startsWith("go")) redraw = goCommand(view, input);
+            else if (input.startsWith("go")) redraw = goCommand(input);
                 // Other
             else if (input.startsWith("nice")) redraw = listCommand(input);
             else {
@@ -73,12 +71,7 @@ public class Mandel {
         }
     }
 
-    private static void output(View view, Drawer drawer) {
-        System.out.print(drawer.draw(view.getSnapshot()));
-        System.out.printf("X: %.14f  Y: %.14f  Zoom: %.1f  > ", view.x, view.y, view.getZoomLevel());
-    }
-
-    private static boolean goCommand(View view, String input) {
+    private boolean goCommand(String input) {
         try {
             final String[] parts = input.split(" +");
             final double x = Double.parseDouble(parts[1]);
@@ -89,12 +82,12 @@ public class Mandel {
         } catch (Exception e) {
             if (!(e instanceof NumberFormatException || e instanceof ArrayIndexOutOfBoundsException))
                 throw new RuntimeException(e);
-            System.out.println("Bad format, should be like: \"go 0.00164 0.82247\"");
+            complainAboutFormat("go 0.00164 0.82247");
             return false;
         }
     }
 
-    private static boolean zoomCommand(View view, String input) {
+    private boolean zoomCommand(String input) {
         try {
             final String[] parts = input.split(" +");
             view.setZoomLevel(Double.parseDouble(parts[1]));
@@ -102,39 +95,8 @@ public class Mandel {
         } catch (Exception e) {
             if (!(e instanceof NumberFormatException || e instanceof ArrayIndexOutOfBoundsException))
                 throw new RuntimeException(e);
-            System.out.println("Bad format, should be like: \"zoom 11\"");
+            complainAboutFormat("zoom 11");
             return false;
-        }
-    }
-
-    private static void showHelp() {
-        System.out.println("--------------------------------------------");
-        System.out.println(" Plx enter one of these commands           ");
-        System.out.println("--------------------------------------------");
-        System.out.println(" w a s d | up down left right              ");
-        System.out.println(" + e     | zoom in                         ");
-        System.out.println(" - q     | zoom out                        ");
-        System.out.println(" zoom Z  | set zoom level to Z             ");
-        System.out.println(" go X Y  | go to coordinates               ");
-        System.out.println(" nice    | list of some locations          ");
-        System.out.println(" quit    | quit                            ");
-        System.out.println("--------------------------------------------");
-        System.out.println(" Use capital letters to move/zoom faster   ");
-        System.out.println("--------------------------------------------");
-        System.out.print("> ");
-    }
-
-    private static class Location {
-        public final String name;
-        public final double x;
-        public final double y;
-        public final double zoom;
-
-        private Location(String name, double x, double y, double zoom) {
-            this.name = name;
-            this.x = x;
-            this.y = y;
-            this.zoom = zoom;
         }
     }
 
@@ -143,28 +105,45 @@ public class Mandel {
         if (parts.length > 1) {
             try {
                 Location location = LOCATIONS[Integer.parseInt(parts[1])];
-                view.x = location.x;
-                view.y = location.y;
-                view.setZoomLevel(location.zoom);
+                view.goTo(location);
                 return true;
             } catch (NumberFormatException e) {
-                System.out.println("Bad format, should be like: \"zoom 11\"");
+                complainAboutFormat("nice 3");
             } catch (ArrayIndexOutOfBoundsException e) {
-                System.out.println("Location with that ID doesn't exist");
+                out.println("Location with that ID doesn't exist");
             }
         } else {
-            System.out.println("--------------------------------------------");
-            System.out.println(" Check out some of these locations        ");
-            System.out.println("--------------------------------------------");
+            showHeader("Check out some of these locations");
             for (int i = 0; i < LOCATIONS.length; i++) {
                 Location location = LOCATIONS[i];
-                System.out.printf(" %d) %-14s  %+.5f  %+.5f  %.1f\n", i, location.name, location.x, location.y, location.zoom);
+                out.printf(" %d) %-14s  %+.5f  %+.5f  %.1f\n", i, location.name, location.x, location.y, location.zoom);
             }
-            System.out.println("--------------------------------------------");
-            System.out.println(" To go to a location type \"nice ID\"");
-            System.out.println("--------------------------------------------");
+            showHeader("To go to a location type \"nice ID\"");
         }
 
         return false;
+    }
+
+    private void showHelp() {
+        showHeader("Plx enter one of these commands");
+        out.println(" w a s d | up down left right              ");
+        out.println(" + e     | zoom in                         ");
+        out.println(" - q     | zoom out                        ");
+        out.println(" zoom Z  | set zoom level to Z             ");
+        out.println(" go X Y  | go to coordinates               ");
+        out.println(" nice    | list of some locations          ");
+        out.println(" quit    | quit                            ");
+        showHeader("Use capital letters to move/zoom faster");
+        out.print("> ");
+    }
+
+    private void showHeader(String message) {
+        out.println("--------------------------------------------");
+        out.println(" " + message);
+        out.println("--------------------------------------------");
+    }
+
+    private void complainAboutFormat(final String example) {
+        out.println("Bad format, should be like: \"" + example + "\"");
     }
 }

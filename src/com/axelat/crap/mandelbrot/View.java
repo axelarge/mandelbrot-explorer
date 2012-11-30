@@ -85,4 +85,10 @@ class View {
     public void right(double by) {
         x += by * SCALE_X * zoom;
     }
+
+    void goTo(Location location) {
+        x = location.x;
+        y = location.y;
+        setZoomLevel(location.zoom);
+    }
 }
